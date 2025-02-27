@@ -1,5 +1,6 @@
 *
 !docker/prover/prover-entry.sh
+!docker/zk-node/entrypoint.sh
 !docker/external-node/entrypoint.sh
 !docker/contract-verifier/install-all-solc.sh
 !etc/test_config
