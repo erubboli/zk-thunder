@@ -15,6 +15,13 @@ use crate::{
     Core,
 };
 
+pub use crate::models::storage_data_availability::{
+    OperationStatus, OperationType, PendingIpfsOperation, PendingMintlayerBatch,
+};
+
+const MAX_RETRY_ATTEMPTS: i32 = 10;
+const MAX_BATCH_SIZE: i64 = 100;
+
 #[derive(Debug)]
 pub struct DataAvailabilityDal<'a, 'c> {
     pub(crate) storage: &'a mut Connection<'c, Core>,
@@ -473,6 +480,217 @@ impl DataAvailabilityDal<'_, '_> {
         .execute(self.storage)
         .await?;
 
+        Ok(())
+    }
+
+    pub async fn get_pending_ipfs_operations(self) -> DalResult<Vec<PendingIpfsOperation>> {
+        let rows = sqlx::query!(
+            r#"
+            SELECT
+                id, operation_type, data, attempts,
+                last_attempt as "last_attempt", created_at,
+                status::text as "status!", ipfs_hash
+            FROM pending_ipfs_operations
+            WHERE status::text = 'pending'
+            OR (status::text = 'failed' AND attempts < $1)
+            ORDER BY created_at ASC
+            LIMIT $2
+            "#,
+            MAX_RETRY_ATTEMPTS,
+            MAX_BATCH_SIZE
+        )
+        .instrument("get_pending_ipfs_operations")
+        .with_arg("MAX_RETRY_ATTEMPTS", &MAX_RETRY_ATTEMPTS)
+        .with_arg("MAX_BATCH_SIZE", &MAX_BATCH_SIZE)
+        .fetch_all(self.storage)
+        .await?;
+
+        rows.into_iter()
+            .map(|row| {
+                Ok(PendingIpfsOperation {
+                    id: row.id,
+                    operation_type: OperationType::from_str(&row.operation_type)
+                        .expect("Invalid operation_type"),
+                    data: row.data,
+                    attempts: row.attempts as u32,
+                    last_attempt: row.last_attempt,
+                    created_at: row.created_at,
+                    status: match row.status.as_str() {
+                        "pending" => OperationStatus::Pending,
+                        "in_progress" => OperationStatus::InProgress,
+                        "completed" => OperationStatus::Completed,
+                        "failed" => OperationStatus::Failed("".to_string()),
+                        _ => panic!("Invalid operation_type"),
+                    },
+                    ipfs_hash: row.ipfs_hash,
+                })
+            })
+            .collect()
+    }
+
+    pub async fn get_pending_mintlayer_batches(self) -> DalResult<Vec<PendingMintlayerBatch>> {
+        let rows = sqlx::query!(
+            r#"
+            SELECT
+                id, ipfs_hashes, attempts, last_attempt,
+                created_at, status::text as "status!", group_ipfs_hash, tx_hash
+            FROM pending_mintlayer_batches
+            WHERE status::text = 'pending'
+            OR (status::text = 'failed' AND attempts < $1)
+            ORDER BY created_at ASC
+            LIMIT $2
+            "#,
+            MAX_RETRY_ATTEMPTS,
+            MAX_BATCH_SIZE
+        )
+        .instrument("get_pending_mintlayer_batches")
+        .with_arg("MAX_RETRY_ATTEMPTS", &MAX_RETRY_ATTEMPTS)
+        .with_arg("MAX_BATCH_SIZE", &MAX_BATCH_SIZE)
+        .fetch_all(self.storage)
+        .await?;
+
+        rows.into_iter()
+            .map(|row| {
+                Ok(PendingMintlayerBatch {
+                    id: row.id,
+                    ipfs_hashes: row.ipfs_hashes,
+                    attempts: row.attempts as u32,
+                    last_attempt: row.last_attempt,
+                    created_at: row.created_at,
+                    status: match row.status.as_str() {
+                        "pending" => OperationStatus::Pending,
+                        "in_progress" => OperationStatus::InProgress,
+                        "completed" => OperationStatus::Completed,
+                        "failed" => OperationStatus::Failed("".to_string()),
+                        _ => panic!("Invalid operation_status"),
+                    },
+                    group_ipfs_hash: row.group_ipfs_hash,
+                    tx_hash: row.tx_hash,
+                })
+            })
+            .collect()
+    }
+
+    pub async fn update_ipfs_operations<'a>(self, op: &PendingIpfsOperation) -> DalResult<()> {
+        sqlx::query!(
+            r#"
+            UPDATE pending_ipfs_operations
+            SET status = $1::text::operation_status, attempts = $2, last_attempt = $3, ipfs_hash = $4
+            WHERE id = $5
+            "#,
+            op.status.to_string(),
+            op.attempts as i32,
+            op.last_attempt,
+            op.ipfs_hash,
+            op.id
+        ).instrument("update_ipfs_operations")
+        .with_arg("status", &op.status.to_string())
+        .with_arg("attempts", &op.attempts)
+        .with_arg("last_attempt", &op.last_attempt)
+        .with_arg("ipfs_hash", &op.ipfs_hash)
+        .with_arg("id", &op.id)
+        .execute(self.storage)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn update_mintlayer_batch<'a>(self, batch: &PendingMintlayerBatch) -> DalResult<()> {
+        sqlx::query!(
+            r#"
+            INSERT INTO pending_mintlayer_batches (
+                id, ipfs_hashes, status, attempts, last_attempt, created_at, group_ipfs_hash
+            ) VALUES ($1, $2, $3::text::operation_status, $4, $5, $6, $7)
+            ON CONFLICT (id) DO UPDATE SET
+                ipfs_hashes = $2,
+                status = $3::text::operation_status,
+                group_ipfs_hash = $7
+            "#,
+            batch.id,
+            &batch.ipfs_hashes,
+            batch.status.to_string(),
+            batch.attempts as i32,
+            batch.last_attempt,
+            batch.created_at,
+            batch.group_ipfs_hash,
+        )
+        .instrument("update_mintlayer_batch")
+        .with_arg("id", &batch.id)
+        .with_arg("ipfs_hashes", &batch.ipfs_hashes)
+        .with_arg("status", &batch.status)
+        .with_arg("attempts", &batch.attempts)
+        .with_arg("last_attempt", &batch.last_attempt)
+        .with_arg("created_at", &batch.created_at)
+        .with_arg("group_ipfs_hash", &batch.group_ipfs_hash)
+        .execute(self.storage)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn cleanup_old_operations(self, days_old: i32) -> DalResult<()> {
+        let mut tx = self.storage.start_transaction().await?;
+
+        sqlx::query!(
+            r#"
+        DELETE FROM pending_ipfs_operations
+        WHERE created_at < NOW() - make_interval(days => $1)
+        AND (status = 'completed' OR attempts >= $2)
+        "#,
+            days_old,
+            MAX_RETRY_ATTEMPTS
+        )
+        .instrument("cleanup_old_operations")
+        .with_arg("days old", &days_old)
+        .with_arg("MAX_RETRY_ATTEMPTS", &MAX_RETRY_ATTEMPTS)
+        .execute(&mut tx)
+        .await?;
+
+        sqlx::query!(
+            r#"
+        DELETE FROM pending_mintlayer_batches
+        WHERE created_at < NOW() - make_interval(days => $1)
+        AND (status = 'completed' OR attempts >= $2)
+        "#,
+            days_old,
+            MAX_RETRY_ATTEMPTS
+        )
+        .instrument("cleanup_old_operations")
+        .with_arg("days old", &days_old)
+        .with_arg("MAX_RETRY_ATTEMPTS", &MAX_RETRY_ATTEMPTS)
+        .execute(&mut tx)
+        .await?;
+
+        tx.commit().await?;
+        Ok(())
+    }
+
+    pub async fn save_pending_operation(self, op: &PendingIpfsOperation) -> DalResult<()> {
+        sqlx::query!(
+            r#"
+            INSERT INTO pending_ipfs_operations (
+                id, operation_type, data, attempts,
+                last_attempt, created_at, status, ipfs_hash
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7::text::operation_status, $8)
+            "#,
+            op.id,
+            op.operation_type.to_string(),
+            op.data,
+            op.attempts as i32,
+            op.last_attempt,
+            op.created_at,
+            op.status.to_string(),
+            op.ipfs_hash
+        )
+        .instrument("save_pending_operation")
+        .with_arg("id", &op.id)
+        .with_arg("operation type", &op.operation_type)
+        .with_arg("data", &op.data)
+        .with_arg("attempts", &op.attempts)
+        .with_arg("last attempt", &op.last_attempt)
+        .with_arg("created at", &op.created_at)
+        .with_arg("status", &op.status)
+        .with_arg("ipfs hash", &op.ipfs_hash)
+        .execute(self.storage)
+        .await?;
         Ok(())
     }
 }
