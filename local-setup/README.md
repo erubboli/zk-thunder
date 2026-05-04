@@ -15,7 +15,6 @@ A comprehensive local development environment for ZK Thunder, featuring L1/L2 no
 - Ubuntu Server (the setup script is designed for Ubuntu)
 - Root access to the server
 - Domain name with Cloudflare DNS account (for SSL certificates)
-- 4EVERLAND account with a configured storage bucket
 - Wallet with MintLayer (ML) tokens (obtainable from [faucet](https://faucet.mintlayer.org/))
 
 ## 🗂️ Project Structure
@@ -93,11 +92,10 @@ Default metrics collected from:
 - `CF_DNS_API_TOKEN`: Cloudflare DNS API token
 - `CF_ZONE_API_TOKEN`: Cloudflare Zone API token
 
-#### 4EVERLAND Storage
+#### IPFS Cluster
 
-- `4EVERLAND_API_KEY`: API key from 4EVERLAND
-- `4EVERLAND_SECRET_KEY`: Secret key from 4EVERLAND
-- `4EVERLAND_BUCKET_NAME`: Your bucket name in 4EVERLAND
+- `IPFS_API_URL`: URL of the IPFS Cluster proxy endpoint (default: `http://cluster0:9095`). The DA worker uploads batch data here and receives a CID in return.
+- `CLUSTER_SECRET`: 32-byte hex secret shared by all cluster peers — required for nodes to authenticate with each other. Generate with `openssl rand -hex 32`.
 - `BATCH_SIZE`: The number of IPFS CIDs to consolidate into a single IPFS CID batch, should be a multiple of 3
 
 #### MintLayer Configuration
@@ -486,15 +484,82 @@ All services will be accessible as subdomains of this domain.
    - One with Zone:Read permission → `CF_ZONE_API_TOKEN`
 4. Set `CF_API_EMAIL` to your Cloudflare account email
 
-#### 4EVERLAND Setup
+#### IPFS Cluster Setup
 
-1. Create an account at [4EVERLAND](https://4everland.org/)
-2. Navigate to Dashboard → Storage → Bucket
-3. Create a new bucket
-4. Go to Account → API Keys to generate:
-   - Copy API key to `4EVERLAND_API_KEY`
-   - Copy Secret key to `4EVERLAND_SECRET_KEY`
-5. Set `4EVERLAND_BUCKET_NAME` to your bucket name
+The stack runs a self-hosted 3-node IPFS cluster (3 Kubo nodes + 3 IPFS Cluster peers). Data uploaded by the DA worker is pinned across all three nodes, so the cluster survives the loss of any single node. No external account or service is required.
+
+**1. Generate a cluster secret**
+
+All peers share a single secret that authenticates inter-node communication. Generate it once and commit it to your `.env`:
+
+```bash
+openssl rand -hex 32
+# Example output: 7f3a9b2e1c4d5f6a8b0e2c4d6f8a0b2c4d6e8f0a2b4c6d8e0f2a4b6c8d0e2f4a
+```
+
+Set this value as `CLUSTER_SECRET` in your `.env` file.
+
+**2. Configure the env**
+
+```bash
+IPFS_API_URL=http://cluster0:9095
+CLUSTER_SECRET=<your-generated-secret>
+```
+
+**3. Start the IPFS services**
+
+The IPFS services are included in the main `docker-compose.yml`. Start them alongside the rest of the stack:
+
+```bash
+docker compose up ipfs0 ipfs1 ipfs2 cluster0 cluster1 cluster2 -d
+```
+
+`cluster1` and `cluster2` automatically bootstrap from `cluster0` on startup — no manual peering step is needed. The cluster uses CRDT consensus, so it remains operational as long as at least one node is reachable.
+
+**4. Verify the cluster**
+
+```bash
+docker exec cluster0 ipfs-cluster-ctl peers ls
+```
+
+You should see all three peers listed. To smoke-test the upload path (run from inside the container — the REST API is not exposed to the host):
+
+```bash
+docker exec cluster0 ipfs-cluster-ctl add /etc/hostname
+# Expected output: added <CID> hostname
+```
+
+**5. Lock down trusted peers (recommended)**
+
+After the first deploy, retrieve each peer's ID and replace the wildcard in `CLUSTER_CRDT_TRUSTEDPEERS`:
+
+```bash
+docker exec cluster0 ipfs-cluster-ctl id
+docker exec cluster1 ipfs-cluster-ctl id
+docker exec cluster2 ipfs-cluster-ctl id
+```
+
+Copy the three peer IDs (format: `12D3KooW...`) and update your `.env` and `docker-compose.yml`:
+
+```yaml
+CLUSTER_CRDT_TRUSTEDPEERS: "12D3KooW<peer0>,12D3KooW<peer1>,12D3KooW<peer2>"
+```
+
+Then restart the cluster peers:
+
+```bash
+docker compose up -d cluster0 cluster1 cluster2
+```
+
+**6. Monitor peer health**
+
+```bash
+# Check pin status across all peers
+docker exec cluster0 ipfs-cluster-ctl status
+
+# View cluster logs
+docker compose logs -f cluster0 cluster1 cluster2
+```
 
 #### MintLayer Setup
 

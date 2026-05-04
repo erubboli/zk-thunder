@@ -11,6 +11,16 @@ APP_DOMAIN='testnet.zkthunder.fi'
 
 export INSTANCE_TYPE=$INSTANCE_TYPE
 
+# Validate CLUSTER_SECRET is set and has sufficient entropy (64 hex chars = 32 bytes)
+if [ -z "${CLUSTER_SECRET}" ]; then
+  echo "ERROR: CLUSTER_SECRET is not set. Generate one with: openssl rand -hex 32" >&2
+  exit 1
+fi
+if [ ${#CLUSTER_SECRET} -lt 64 ]; then
+  echo "ERROR: CLUSTER_SECRET must be at least 64 hex characters (32 bytes). Generate with: openssl rand -hex 32" >&2
+  exit 1
+fi
+
 # Ensure zkthunder-data directory exists and create dev.env if it doesn't exist
 mkdir -p zkthunder-data
 if [ ! -f zkthunder-data/dev.env ]; then

@@ -397,9 +397,9 @@ pub async fn create_data_availability_worker(
     pool: ConnectionPool<Core>,
     metrics: Arc<DataAvailabilityMetrics>,
 ) -> Result<DataAvailabilityWorker<Box<dyn IPFSService>, Box<dyn MintlayerService>>, DataAvailabilityError> {
-    use super::services::{FourEverLandIPFSService, MintlayerRpcService};
-    
-    let ipfs_service: Box<dyn IPFSService> = Box::new(FourEverLandIPFSService::new(config.ipfs));
+    use super::services::{KuboIPFSService, MintlayerRpcService};
+
+    let ipfs_service: Box<dyn IPFSService> = Box::new(KuboIPFSService::new(config.ipfs));
     let mintlayer_service: Box<dyn MintlayerService> = Box::new(MintlayerRpcService::new(config.mintlayer));
     
     Ok(DataAvailabilityWorker::new(

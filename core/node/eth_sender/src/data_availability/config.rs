@@ -16,20 +16,28 @@ pub struct WorkerConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IPFSConfig {
-    pub api_key: String,
-    pub secret_key: String,
-    pub bucket_name: String,
-    pub region: String,
-    pub endpoint: String,
+    pub api_url: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Deserialize)]
 pub struct MintlayerConfig {
     pub rpc_url: String,
     pub rpc_username: Option<String>,
     pub rpc_password: Option<String>,
     pub mnemonic: Option<String>,
     pub wallet_path: String,
+}
+
+impl std::fmt::Debug for MintlayerConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MintlayerConfig")
+            .field("rpc_url", &self.rpc_url)
+            .field("rpc_username", &self.rpc_username)
+            .field("rpc_password", &"[REDACTED]")
+            .field("mnemonic", &"[REDACTED]")
+            .field("wallet_path", &self.wallet_path)
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -90,17 +98,12 @@ impl DataAvailabilityConfig {
                 .map_err(|e| format!("Invalid BATCH_SIZE: {}", e))?,
         };
 
-        let ipfs = IPFSConfig {
-            api_key: std::env::var("4EVERLAND_API_KEY")
-                .map_err(|_| "4EVERLAND_API_KEY not set".to_string())?,
-            secret_key: std::env::var("4EVERLAND_SECRET_KEY")
-                .map_err(|_| "4EVERLAND_SECRET_KEY not set".to_string())?,
-            bucket_name: std::env::var("4EVERLAND_BUCKET_NAME")
-                .map_err(|_| "4EVERLAND_BUCKET_NAME not set".to_string())?,
-            region: std::env::var("4EVERLAND_REGION").unwrap_or_else(|_| "us-east-1".to_string()),
-            endpoint: std::env::var("4EVERLAND_ENDPOINT")
-                .unwrap_or_else(|_| "https://endpoint.4everland.co".to_string()),
-        };
+        let api_url = std::env::var("IPFS_API_URL")
+            .unwrap_or_else(|_| "http://cluster0:9095".to_string());
+        if !api_url.starts_with("http://") && !api_url.starts_with("https://") {
+            return Err(format!("IPFS_API_URL must use http or https scheme: {}", api_url));
+        }
+        let ipfs = IPFSConfig { api_url };
 
         let mintlayer = MintlayerConfig {
             rpc_url: std::env::var("ML_RPC_URL").map_err(|_| "ML_RPC_URL not set".to_string())?,

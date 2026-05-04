@@ -408,6 +408,126 @@ services:
       postgres:
         condition: service_healthy
 
+  # --- IPFS Cluster (3-node HA) ---
+  ipfs0:
+    <<: *common
+    image: ipfs/kubo:v0.29.0
+    volumes:
+      - ipfs0_data:/data/ipfs
+    healthcheck:
+      test: ["CMD", "ipfs", "id"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+          cpus: '1.0'
+
+  ipfs1:
+    <<: *common
+    image: ipfs/kubo:v0.29.0
+    volumes:
+      - ipfs1_data:/data/ipfs
+    healthcheck:
+      test: ["CMD", "ipfs", "id"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+          cpus: '1.0'
+
+  ipfs2:
+    <<: *common
+    image: ipfs/kubo:v0.29.0
+    volumes:
+      - ipfs2_data:/data/ipfs
+    healthcheck:
+      test: ["CMD", "ipfs", "id"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+          cpus: '1.0'
+
+  cluster0:
+    <<: *common
+    image: ipfs/ipfs-cluster:v1.1.2
+    depends_on:
+      - ipfs0
+    environment:
+      CLUSTER_PEERNAME: cluster0
+      CLUSTER_SECRET: ${CLUSTER_SECRET}
+      CLUSTER_IPFSHTTP_NODEMULTIADDRESS: /dns4/ipfs0/tcp/5001
+      # After first deploy, replace '*' with the peer IDs from: docker exec cluster0 ipfs-cluster-ctl id
+      CLUSTER_CRDT_TRUSTEDPEERS: '*'
+      CLUSTER_RESTAPI_HTTPLISTENMULTIADDRESS: /ip4/127.0.0.1/tcp/9094
+      CLUSTER_IPFSPROXY_LISTENMULTIADDRESS: /ip4/0.0.0.0/tcp/9095
+      CLUSTER_IPFSPROXY_NODEHTTPLISTENMULTIADDRESS: /dns4/ipfs0/tcp/5001
+      CLUSTER_MONITORPINGINTERVAL: 2s
+    volumes:
+      - cluster0_data:/data/ipfs-cluster
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: '0.5'
+
+  cluster1:
+    <<: *common
+    image: ipfs/ipfs-cluster:v1.1.2
+    depends_on:
+      - ipfs1
+      - cluster0
+    environment:
+      CLUSTER_PEERNAME: cluster1
+      CLUSTER_SECRET: ${CLUSTER_SECRET}
+      CLUSTER_IPFSHTTP_NODEMULTIADDRESS: /dns4/ipfs1/tcp/5001
+      CLUSTER_CRDT_TRUSTEDPEERS: '*'
+      CLUSTER_RESTAPI_HTTPLISTENMULTIADDRESS: /ip4/127.0.0.1/tcp/9094
+      CLUSTER_IPFSPROXY_LISTENMULTIADDRESS: /ip4/0.0.0.0/tcp/9095
+      CLUSTER_IPFSPROXY_NODEHTTPLISTENMULTIADDRESS: /dns4/ipfs1/tcp/5001
+      CLUSTER_MONITORPINGINTERVAL: 2s
+      CLUSTER_BOOTSTRAP: /dns4/cluster0/tcp/9096
+    volumes:
+      - cluster1_data:/data/ipfs-cluster
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: '0.5'
+
+  cluster2:
+    <<: *common
+    image: ipfs/ipfs-cluster:v1.1.2
+    depends_on:
+      - ipfs2
+      - cluster0
+    environment:
+      CLUSTER_PEERNAME: cluster2
+      CLUSTER_SECRET: ${CLUSTER_SECRET}
+      CLUSTER_IPFSHTTP_NODEMULTIADDRESS: /dns4/ipfs2/tcp/5001
+      CLUSTER_CRDT_TRUSTEDPEERS: '*'
+      CLUSTER_RESTAPI_HTTPLISTENMULTIADDRESS: /ip4/127.0.0.1/tcp/9094
+      CLUSTER_IPFSPROXY_LISTENMULTIADDRESS: /ip4/0.0.0.0/tcp/9095
+      CLUSTER_IPFSPROXY_NODEHTTPLISTENMULTIADDRESS: /dns4/ipfs2/tcp/5001
+      CLUSTER_MONITORPINGINTERVAL: 2s
+      CLUSTER_BOOTSTRAP: /dns4/cluster0/tcp/9096
+    volumes:
+      - cluster2_data:/data/ipfs-cluster
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: '0.5'
+
 networks:
   zkthunder-network:
     driver: bridge
@@ -425,3 +545,9 @@ volumes:
   zksync_data:
   letsencrypt:
   traefik-logs:
+  ipfs0_data:
+  ipfs1_data:
+  ipfs2_data:
+  cluster0_data:
+  cluster1_data:
+  cluster2_data:
