@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO pending_mintlayer_batches (\n                id, ipfs_hashes, status, attempts, last_attempt, created_at, group_ipfs_hash, tx_hash\n            ) VALUES ($1, $2, $3::text::operation_status, $4, $5, $6, $7, $8)\n            ON CONFLICT (id) DO UPDATE SET\n                ipfs_hashes = $2,\n                status = $3::text::operation_status,\n                attempts = $4,\n                last_attempt = $5,\n                group_ipfs_hash = $7,\n                tx_hash = $8\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "TextArray",
+        "Text",
+        "Int4",
+        "Timestamptz",
+        "Timestamptz",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "57949a0d7f00da4407d96d155ef6f4e77804b9e46fdf14468350dabb5d54f785"
+}

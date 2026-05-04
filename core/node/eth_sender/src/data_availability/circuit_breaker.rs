@@ -55,9 +55,9 @@ impl CircuitBreaker {
     pub fn record_success(&mut self) {
         if self.state == CircuitBreakerState::HalfOpen {
             self.state = CircuitBreakerState::Closed;
-            self.failure_count = 0;
-            self.last_failure_time = None;
         }
+        self.failure_count = 0;
+        self.last_failure_time = None;
     }
 
     fn check_state(&mut self) {
@@ -66,13 +66,6 @@ impl CircuitBreaker {
                 if last_failure.elapsed() >= self.reset_timeout {
                     self.state = CircuitBreakerState::HalfOpen;
                     self.failure_count = 0;
-                }
-            }
-        } else if self.state == CircuitBreakerState::HalfOpen {
-            if let Some(last_failure) = self.last_failure_time {
-                if last_failure.elapsed() >= self.half_open_timeout {
-                    // Allow a test request to go through
-                    self.state = CircuitBreakerState::HalfOpen;
                 }
             }
         }

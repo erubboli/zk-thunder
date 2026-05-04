@@ -39,7 +39,7 @@ pub mod consensus;
 pub mod consensus_dal;
 pub mod contract_verification_dal;
 pub mod custom_genesis_export_dal;
-mod data_availability_dal;
+pub mod data_availability_dal;
 pub mod eth_proof_manager_dal;
 pub mod eth_sender_dal;
 pub mod eth_watcher_dal;

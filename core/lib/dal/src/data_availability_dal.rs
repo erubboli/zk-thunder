@@ -598,12 +598,15 @@ impl DataAvailabilityDal<'_, '_> {
         sqlx::query!(
             r#"
             INSERT INTO pending_mintlayer_batches (
-                id, ipfs_hashes, status, attempts, last_attempt, created_at, group_ipfs_hash
-            ) VALUES ($1, $2, $3::text::operation_status, $4, $5, $6, $7)
+                id, ipfs_hashes, status, attempts, last_attempt, created_at, group_ipfs_hash, tx_hash
+            ) VALUES ($1, $2, $3::text::operation_status, $4, $5, $6, $7, $8)
             ON CONFLICT (id) DO UPDATE SET
                 ipfs_hashes = $2,
                 status = $3::text::operation_status,
-                group_ipfs_hash = $7
+                attempts = $4,
+                last_attempt = $5,
+                group_ipfs_hash = $7,
+                tx_hash = $8
             "#,
             batch.id,
             &batch.ipfs_hashes,
@@ -612,6 +615,7 @@ impl DataAvailabilityDal<'_, '_> {
             batch.last_attempt,
             batch.created_at,
             batch.group_ipfs_hash,
+            batch.tx_hash,
         )
         .instrument("update_mintlayer_batch")
         .with_arg("id", &batch.id)
@@ -653,7 +657,7 @@ impl DataAvailabilityDal<'_, '_> {
             days_old,
             MAX_RETRY_ATTEMPTS
         )
-        .instrument("cleanup_old_operations")
+        .instrument("cleanup_old_mintlayer_batches")
         .with_arg("days old", &days_old)
         .with_arg("MAX_RETRY_ATTEMPTS", &MAX_RETRY_ATTEMPTS)
         .execute(&mut tx)
@@ -683,7 +687,7 @@ impl DataAvailabilityDal<'_, '_> {
         .instrument("save_pending_operation")
         .with_arg("id", &op.id)
         .with_arg("operation type", &op.operation_type)
-        .with_arg("data", &op.data)
+        .with_arg("data_len", &op.data.len())
         .with_arg("attempts", &op.attempts)
         .with_arg("last attempt", &op.last_attempt)
         .with_arg("created at", &op.created_at)

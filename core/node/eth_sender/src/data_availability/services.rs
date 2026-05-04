@@ -62,6 +62,10 @@ impl IPFSService for KuboIPFSService {
             .map(|s| s.to_string())
             .ok_or_else(|| DataAvailabilityError::IPFSError("Missing Hash in response".into()))?;
 
+        if !cid.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '-' | '_' | '.')) {
+            return Err(DataAvailabilityError::IPFSError(format!("Invalid CID returned by IPFS: {}", cid)));
+        }
+
         // Verify: download back and compare to detect any storage corruption or CID mismatch
         let verify = self.client
             .post(format!("{}/api/v0/cat?arg={}", self.api_url, cid))
@@ -96,6 +100,12 @@ pub struct MintlayerRpcService {
 
 impl MintlayerRpcService {
     pub fn new(config: MintlayerConfig) -> Self {
+        if config.mnemonic.is_some() && !config.rpc_url.starts_with("https://") {
+            tracing::warn!(
+                "ML_RPC_URL uses plaintext HTTP while a mnemonic is configured; \
+                 use https:// to protect credentials in transit"
+            );
+        }
         let client = reqwest::Client::builder()
             .connect_timeout(Duration::from_secs(5))
             .timeout(Duration::from_secs(30))
@@ -257,8 +267,11 @@ impl MintlayerService for MintlayerRpcService {
             serde_json::to_string(&response_json).unwrap()
         );
         
-        match response_json.get("result") {
-            Some(tx_hash) => Ok(tx_hash.as_str().unwrap_or("").to_string()),
+        match response_json.get("result").and_then(|v| v.as_str()) {
+            Some(tx_hash) if !tx_hash.is_empty() => Ok(tx_hash.to_string()),
+            Some(_) => Err(DataAvailabilityError::MintlayerError(
+                "Empty tx_hash in response".into(),
+            )),
             None => Err(DataAvailabilityError::MintlayerError(
                 "No tx_hash in response".into(),
             )),

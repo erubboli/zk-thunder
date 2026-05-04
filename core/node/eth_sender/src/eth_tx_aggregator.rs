@@ -1,7 +1,5 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
-use chrono::Utc;
-
 use tokio::sync::watch;
 use zksync_config::configs::eth_sender::{PrecommitParams, SenderConfig};
 use zksync_contracts::BaseSystemContractsHashes;
@@ -43,7 +41,6 @@ use crate::{
     aggregator::OperationSkippingRestrictions,
     data_availability::{
         config::DataAvailabilityConfig,
-        error::DataAvailabilityError,
         metrics::DataAvailabilityMetrics,
         services::{IPFSService, MintlayerService},
         worker::{create_data_availability_worker, DataAvailabilityWorker},
@@ -114,7 +111,6 @@ pub struct EthTxAggregator {
     initial_pending_nonces: HashMap<Address, u64>,
     needs_to_check_precommit: bool,
     data_availability_worker: Option<DataAvailabilityWorker<Box<dyn IPFSService + 'static>, Box<dyn MintlayerService + 'static>>>,
-    metrics: Arc<DataAvailabilityMetrics>,
 }
 
 struct TxData {
@@ -154,12 +150,11 @@ impl EthTxAggregator {
 
         let sl_chain_id = (*eth_client).as_ref().fetch_chain_id().await.unwrap();
 
-        let metrics = Arc::new(DataAvailabilityMetrics::default());
         let data_availability_config = DataAvailabilityConfig::from_env().unwrap_or_default();
         let data_availability_worker = match create_data_availability_worker(
             data_availability_config,
             pool.clone(),
-            metrics.clone(),
+            Arc::new(DataAvailabilityMetrics::default()),
         ).await {
             Ok(worker) => Some(worker),
             Err(e) => {
@@ -187,7 +182,6 @@ impl EthTxAggregator {
             initial_pending_nonces,
             needs_to_check_precommit: true,
             data_availability_worker,
-            metrics,
         };
 
         if let Some(worker) = eth_tx_aggregator.data_availability_worker.take() {
@@ -1464,39 +1458,6 @@ impl EthTxAggregator {
         Ok(has_uncommitted_batches)
     }
 
-    async fn save_mintlayer_tx(&mut self, aggregated_op: &AggregatedOperation) {
-        use zksync_dal::data_availability_dal::{OperationStatus, OperationType, PendingIpfsOperation};
-        let pending_op = PendingIpfsOperation {
-            id: uuid::Uuid::new_v4(),
-            operation_type: OperationType::from_str(
-                &aggregated_op.get_action_caption().to_string(),
-            )
-            .map_err(|e| DataAvailabilityError::DatabaseError(e.to_string()))
-            .unwrap(),
-            data: serde_json::to_vec(aggregated_op).unwrap(),
-            attempts: 0,
-            last_attempt: None,
-            created_at: Utc::now(),
-            status: OperationStatus::Pending,
-            ipfs_hash: None,
-        };
-
-        let mut conn = match self.pool.connection_tagged("eth_tx_aggregator").await {
-            Ok(conn) => conn,
-            Err(e) => {
-                tracing::error!("Failed to connect to database: {}", e);
-                return;
-            }
-        };
-
-        if let Err(e) = conn
-            .data_availability_dal()
-            .save_pending_operation(&pending_op)
-            .await
-        {
-            tracing::error!("Failed to save pending operation: {}", e);
-        }
-    }
 }
 
 async fn query_contract(

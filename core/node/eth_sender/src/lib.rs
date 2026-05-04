@@ -1,5 +1,6 @@
 mod aggregated_operations;
 mod aggregator;
+pub(crate) mod data_availability;
 mod error;
 mod eth_tx_aggregator;
 mod eth_tx_manager;

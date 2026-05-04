@@ -103,6 +103,11 @@ impl<I: IPFSService + 'static, M: MintlayerService + 'static> DataAvailabilityWo
                 if self.ipfs_circuit_breaker.lock().await.record_failure() {
                     tracing::error!("Circuit breaker opened for IPFS operations");
                 }
+                op.attempts += 1;
+                op.last_attempt = Some(Utc::now());
+                if let Ok(mut conn) = self.pool.connection_tagged("data_availability_worker").await {
+                    let _ = conn.data_availability_dal().update_ipfs_operations(op).await;
+                }
                 Err(e)
             }
         }
@@ -187,6 +192,11 @@ impl<I: IPFSService + 'static, M: MintlayerService + 'static> DataAvailabilityWo
                 self.metrics.mintlayer_errors.inc();
                 if self.mintlayer_circuit_breaker.lock().await.record_failure() {
                     tracing::error!("Circuit breaker opened for Mintlayer operations");
+                }
+                batch.attempts += 1;
+                batch.last_attempt = Some(Utc::now());
+                if let Ok(mut conn) = self.pool.connection_tagged("data_availability_worker").await {
+                    let _ = conn.data_availability_dal().update_mintlayer_batch(batch).await;
                 }
                 Err(e)
             }

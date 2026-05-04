@@ -100,7 +100,6 @@ services:
     image: postgres:14
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
     env_file:
       - .env
     command: postgres -c 'max_connections=200'
@@ -384,18 +383,6 @@ services:
     expose:
       - "13034"
 
-  hyperexplorer:
-    <<: *common
-    image: ghcr.io/mm-zk/zksync_tools:latest
-    depends_on:
-      zkthunder:
-        condition: service_healthy
-    volumes:
-      - ./hyperexplorer.json:/app/operator/config.json
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.hyperexplorer.rule=Host(`hyperexplorer.${APP_DOMAIN}`)"
-      - "traefik.http.routers.hyperexplorer.tls=true"
 
   postgres-exporter:
     <<: *common

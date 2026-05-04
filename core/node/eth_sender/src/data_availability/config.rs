@@ -92,10 +92,10 @@ impl DataAvailabilityConfig {
                 .unwrap_or_else(|_| "30".to_string())
                 .parse()
                 .map_err(|e| format!("Invalid CLEANUP_DAYS_THRESHOLD: {}", e))?,
-            batch_size: std::env::var("BATCH_SIZE")
+            batch_size: std::env::var("DA_BATCH_SIZE")
                 .unwrap_or_else(|_| "10".to_string())
                 .parse()
-                .map_err(|e| format!("Invalid BATCH_SIZE: {}", e))?,
+                .map_err(|e| format!("Invalid DA_BATCH_SIZE: {}", e))?,
         };
 
         let api_url = std::env::var("IPFS_API_URL")
@@ -119,5 +119,33 @@ impl DataAvailabilityConfig {
             ipfs,
             mintlayer,
         })
+    }
+}
+
+impl Default for DataAvailabilityConfig {
+    fn default() -> Self {
+        Self {
+            worker: WorkerConfig {
+                ipfs_retry_base_delay: Duration::from_secs(5),
+                ipfs_retry_max_delay: Duration::from_secs(300),
+                ipfs_max_attempts: 5,
+                mintlayer_retry_base: Duration::from_secs(5),
+                mintlayer_retry_max_delay: Duration::from_secs(300),
+                mintlayer_max_attempts: 5,
+                cleanup_interval: Duration::from_secs(3600),
+                cleanup_days_threshold: 30,
+                batch_size: 10,
+            },
+            ipfs: IPFSConfig {
+                api_url: "http://localhost:9095".to_string(),
+            },
+            mintlayer: MintlayerConfig {
+                rpc_url: String::new(),
+                rpc_username: None,
+                rpc_password: None,
+                mnemonic: None,
+                wallet_path: "/home/mintlayer/wallet.dat".to_string(),
+            },
+        }
     }
 } 
